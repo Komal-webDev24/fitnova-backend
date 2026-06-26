@@ -1,17 +1,13 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const cors = require('cors');
-const bcrypt = require('bcryptjs');
+const mongoose = require('mongoose');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI;
 
-// server.js mein ye change karo:
 const corsOptions = {
-  origin: '*', // Ye sabhi domains ko allow kar dega
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  origin: ['https://fitnova-web-nine.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
 };
@@ -20,129 +16,99 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 app.use(express.json());
 
-const userSchema = new mongoose.Schema(
-  {
-    fullName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-    password: {
-      type: String,
-      required: true,
-    },
-    weight: {
-      type: Number,
-      default: null,
-    },
-    height: {
-      type: Number,
-      default: null,
-    },
-    fitnessGoal: {
-      type: String,
-      default: null,
-    },
-    profileComplete: {
-      type: Boolean,
-      default: false,
-    },
-  },
-  { timestamps: true }
-);
+const userSchema = new mongoose.Schema({
+  fullName: { type: String, required: true, trim: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password: { type: String, required: true },
+  weight: { type: Number, default: null },
+  height: { type: Number, default: null },
+  fitnessGoal: { type: String, default: null },
+  profileComplete: { type: Boolean, default: false },
+}, { timestamps: true });
 
 const User = mongoose.model('User', userSchema);
 
-app.post('/api/register', async (req, res) => {
+app.post('/api/user/profile', async (req, res) => {
   try {
-    const { fullName, email, password } = req.body;
+    const { userId, weight, height, goal } = req.body;
 
-    if (!fullName || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (!userId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId is required',
+      });
     }
 
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (weight === undefined || height === undefined || !goal) {
+      return res.status(400).json({
+        success: false,
+        error: 'weight, height, and goal are required',
+      });
     }
 
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({ error: 'User already exists with this email' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await User.create({
-      fullName,
-      email,
-      password: hashedPassword,
-      profileComplete: false,
-    });
-
-    return res.status(201).json({
-      message: 'User registered successfully',
-      user: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        profileComplete: user.profileComplete,
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        weight: Number(weight),
+        height: Number(height),
+        fitnessGoal: goal,
+        profileComplete: true,
       },
-    });
-  } catch (error) {
-    console.error('Registration error:', error);
-    return res.status(500).json({ error: 'Server error during registration' });
-  }
-});
+      {
+        new: true,
+        runValidators: true,
+      }
+    );
 
-app.post('/api/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
-    }
-
-    const user = await User.findOne({ email });
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid email or password' });
-    }
-
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Invalid email or password' });
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found',
+      });
     }
 
     return res.status(200).json({
-      message: 'Login successful',
+      success: true,
+      message: 'Profile saved!',
       user: {
-        id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-        profileComplete: user.profileComplete,
+        id: updatedUser._id,
+        fullName: updatedUser.fullName,
+        email: updatedUser.email,
+        weight: updatedUser.weight,
+        height: updatedUser.height,
+        fitnessGoal: updatedUser.fitnessGoal,
+        profileComplete: updatedUser.profileComplete,
       },
     });
   } catch (error) {
-    console.error('Login error:', error);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('Profile save error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
   }
 });
 
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ success: true, message: 'API running' });
+});
+
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    error: 'Route not found',
+  });
+});
+
 mongoose
-  .connect(MONGO_URI)
+  .connect(process.env.MONGO_URI)
   .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
+    console.log('MongoDB connected');
+    app.listen(process.env.PORT || 5000, () => {
+      console.log('Server started');
     });
   })
-  .catch((error) => {
-    console.error('MongoDB connection error:', error);
+  .catch((err) => {
+    console.error('MongoDB connection error:', err);
     process.exit(1);
   });
